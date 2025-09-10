@@ -52,4 +52,8 @@ output <- test_bike %>%
   bind_cols(predictions) %>%
   rename(count = .pred)
 
+output$count <- ifelse(output$count < 0, 0, output$count)
+
 vroom_write(output, "bike_predictions.csv", delim = ',')
+
+
