@@ -36,9 +36,9 @@ temp_v_count <- ggplot(data=bikeshare, aes(x = temp, y = count)) +
 library(tidymodels)
 
 train_bike <- vroom("train.csv")
-train_bike <- train_bike[, -c(1, 10,11)]
+train_bike <- train_bike[, -c(10,11)]
 test_bike <- vroom("test.csv")
-test_bike <- test_bike[,-c(1)]
+#test_bike <- test_bike[,-c(1)]
 
 my_linear_model <- linear_reg() %>% 
   set_engine("lm") %>% 
