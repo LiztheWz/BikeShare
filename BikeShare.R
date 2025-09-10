@@ -46,6 +46,10 @@ my_linear_model <- linear_reg() %>%
   fit(formula = count~., data = train_bike)
 
 predictions <- predict(my_linear_model, new_data = test_bike)
-predictions
 
-vroom_write(predictions, "bike_predictions.csv")
+output <- test_bike %>% 
+  select(datetime) %>%
+  bind_cols(predictions) %>%
+  rename(count = .pred)
+
+vroom_write(output, "bike_predictions.csv", delim = ',')
