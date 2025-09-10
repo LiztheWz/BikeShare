@@ -29,3 +29,23 @@ temp_v_count <- ggplot(data=bikeshare, aes(x = temp, y = count)) +
 
 (casual_v_registered + bar_weather) / (season_boxplot + temp_v_count)
 
+
+
+
+## linear regression
+library(tidymodels)
+
+train_bike <- vroom("train.csv")
+train_bike <- train_bike[, -c(1, 10,11)]
+test_bike <- vroom("test.csv")
+test_bike <- test_bike[,-c(1)]
+
+my_linear_model <- linear_reg() %>% 
+  set_engine("lm") %>% 
+  set_mode("regression") %>%
+  fit(formula = count~., data = train_bike)
+
+predictions <- predict(my_linear_model, new_data = test_bike)
+predictions
+
+vroom_write(predictions, "bike_predictions.csv")
