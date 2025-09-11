@@ -50,7 +50,8 @@ predictions <- predict(my_linear_model, new_data = test_bike)
 output <- test_bike %>% 
   select(datetime) %>%
   bind_cols(predictions) %>%
-  rename(count = .pred)
+  rename(count = .pred) %>%
+  mutate(datetime = as.character(format(datetime)))
 
 output$count <- ifelse(output$count < 0, 0, output$count)
 
