@@ -2,22 +2,23 @@ library(tidyverse)
 library(vroom)
 library(patchwork)
 library(tidymodels)
+library(glmnet)
 
 train_bike <- vroom("train.csv")
 
-casual_v_registered <- ggplot(data=bikeshare, aes(x = casual, y = registered)) +
+casual_v_registered <- ggplot(data=train_bike, aes(x = casual, y = registered)) +
   geom_point() + geom_smooth(se = FALSE)
 
-bar_weather <- ggplot(data = bikeshare, aes(x = weather, fill = factor(weather))) +
+bar_weather <- ggplot(data = train_bike, aes(x = weather, fill = factor(weather))) +
   geom_bar()
 
-season_boxplot <- ggplot(data = bikeshare, aes(x = count, 
+season_boxplot <- ggplot(data = train_bike, aes(x = count, 
                                                y = humidity, 
                                                group = season,
                                                fill = factor(season))) +
   geom_boxplot()
 
-temp_v_count <- ggplot(data=bikeshare, aes(x = temp, y = count)) +
+temp_v_count <- ggplot(data=train_bike, aes(x = temp, y = count)) +
   geom_point() + geom_smooth(se = FALSE)
 
 (casual_v_registered + bar_weather) / (season_boxplot + temp_v_count)
@@ -33,7 +34,40 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
   step_mutate(weather = factor(weather)) %>%
   step_time(datetime, features = "hour") %>%
   step_mutate(season = factor(season)) %>%
-  step_date(datetime, features = "dow")
+  step_date(datetime, features = "dow") %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  update_role(datetime, new_role = "ID")
+
+
+# PENALIZED REGRESSION
+# COMBO 1
+preg_model <- linear_reg(penalty = 1, mixture = 0.99) %>%
+  set_engine("glmnet")
+
+# COMBO 2
+preg_model <- linear_reg(penalty = 0.0001, mixture = 0.5) %>%
+  set_engine("glmnet")
+
+# COMBO 3
+preg_model <- linear_reg(penalty = 0.000001, mixture = 0.1) %>%
+  set_engine("glmnet")
+
+# COMBO 4
+preg_model <- linear_reg(penalty = 1e-50, mixture = 1e-50) %>%
+  set_engine("glmnet")
+
+# COMBO 5
+preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
+  set_engine("glmnet")
+
+preg_workflow <- workflow() %>% 
+  add_recipe(bike_recipe) %>%
+  add_model(preg_model) %>%
+  fit(data = train_bike)
+
+
+
 
 
 # LINEAR REGRESSION WORKFLOW
@@ -47,19 +81,18 @@ bike_workflow <- workflow() %>%
   add_model(my_linear_model) %>%
   fit(data = train_bike)
 
+
+
+
+# PREDICTIONS
 test_bike <- vroom("test.csv")
-predictions <- exp(predict(bike_workflow, new_data = test_bike))
+predictions <- predict(preg_workflow, new_data = test_bike) %>%
+  mutate(count = exp(.pred)) %>%
+  bind_cols(test_bike %>% select(datetime)) %>%
+  select(datetime, count) %>%
+  mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
+  
 
-# predictions <- predict(my_linear_model, new_data = test_bike)
-
-output <- test_bike %>% 
-  select(datetime) %>%
-  bind_cols(predictions) %>%
-  rename(count = .pred) %>%
-  mutate(datetime = as.character(format(datetime)))
-
-# output$count <- ifelse(output$count < 0, 0, output$count)
-
-vroom_write(output, "bike_predictions2.csv", delim = ',')
+vroom_write(predictions, "bike_predictions3.csv", delim = ',')
 
 
