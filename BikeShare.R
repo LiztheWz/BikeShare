@@ -6,6 +6,8 @@ library(glmnet)
 
 train_bike <- vroom("train.csv")
 
+
+# COMMON EDA
 casual_v_registered <- ggplot(data=train_bike, aes(x = casual, y = registered)) +
   geom_point() + geom_smooth(se = FALSE)
 
@@ -41,6 +43,8 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
 
 
 # PENALIZED REGRESSION
+
+# GUESSING PENALTY AND MIXTURE
 # COMBO 1
 preg_model <- linear_reg(penalty = 1, mixture = 0.99) %>%
   set_engine("glmnet")
@@ -69,6 +73,42 @@ preg_workflow <- workflow() %>%
 
 
 
+# TUNING PARAMETERS
+
+tune_model <- linear_reg(penalty = tune(),
+                         mixture = tune()) %>%
+  set_engine("glmnet")
+
+preg_wf <- workflow() %>%
+  add_recipe(bike_recipe) %>%
+  add_model(tune_model)
+
+grid_of_tuning_params <- grid_regular(penalty(),
+                                      mixture(),
+                                      levels = 20)
+
+folds <- vfold_cv(train_bike, v = 10, repeats = 5)
+
+CV_results <- preg_wf %>%
+  tune_grid(resamples = folds,
+            grid = grid_of_tuning_params,
+            metrics = metric_set(rmse, mae))
+
+#collect_metrics(CV_results) %>%
+#  filter(.metric == "rmse") %>%
+#  ggplot(data = ., aes(x = penalty, y = mean, color = factor(mixture))) +
+#  geom_line()
+  
+bestTune <- CV_results %>%
+  select_best(metric = "rmse")
+
+final_wf <- preg_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data = train_bike)
+
+
+
+
 
 # LINEAR REGRESSION WORKFLOW
 
@@ -86,13 +126,15 @@ bike_workflow <- workflow() %>%
 
 # PREDICTIONS
 test_bike <- vroom("test.csv")
-predictions <- predict(preg_workflow, new_data = test_bike) %>%
+
+predictions <- final_wf %>% 
+  predict(new_data = test_bike) %>%
   mutate(count = exp(.pred)) %>%
   bind_cols(test_bike %>% select(datetime)) %>%
   select(datetime, count) %>%
   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
   
 
-vroom_write(predictions, "bike_predictions3.csv", delim = ',')
+vroom_write(predictions, "bike_predictions4.csv", delim = ',')
 
 
