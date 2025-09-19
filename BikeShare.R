@@ -27,6 +27,16 @@ temp_v_count <- ggplot(data=train_bike, aes(x = temp, y = count)) +
 
 
 
+# REGRESSION TREES
+
+tree_mod <- decision_tree(tree_depth = tune(),
+                        cost_complexity = tune(),
+                        min_n = tune()) %>%
+  set_engine("rpart") %>% set_mode("regression")
+
+
+
+
 # CLEANING / FEATURE ENGINEERING
 train_bike <- train_bike[, -c(10,11)]
 train_bike$count <- log(train_bike$count)
@@ -75,29 +85,32 @@ preg_workflow <- workflow() %>%
 
 # TUNING PARAMETERS
 
-tune_model <- linear_reg(penalty = tune(),
-                         mixture = tune()) %>%
-  set_engine("glmnet")
+#tune_model <- linear_reg(penalty = tune(),
+#                         mixture = tune()) %>%
+#  set_engine("glmnet")
+
 
 preg_wf <- workflow() %>%
   add_recipe(bike_recipe) %>%
-  add_model(tune_model)
+  add_model(tree_mod)
 
-grid_of_tuning_params <- grid_regular(penalty(),
-                                      mixture(),
-                                      levels = 20)
+#grid_of_tuning_params <- grid_regular(penalty(),
+#                                      mixture(),
+#                                      levels = 5)
 
-folds <- vfold_cv(train_bike, v = 10, repeats = 5)
+grid_of_tuning_params <- grid_regular(tree_depth(),
+                                      cost_complexity(),
+                                      min_n(),
+                                      levels = 5)
+
+folds <- vfold_cv(train_bike, v = 10, repeats = 1)
 
 CV_results <- preg_wf %>%
   tune_grid(resamples = folds,
             grid = grid_of_tuning_params,
             metrics = metric_set(rmse, mae))
 
-#collect_metrics(CV_results) %>%
-#  filter(.metric == "rmse") %>%
-#  ggplot(data = ., aes(x = penalty, y = mean, color = factor(mixture))) +
-#  geom_line()
+
   
 bestTune <- CV_results %>%
   select_best(metric = "rmse")
@@ -135,6 +148,6 @@ predictions <- final_wf %>%
   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
   
 
-vroom_write(predictions, "bike_predictions4.csv", delim = ',')
+vroom_write(predictions, "bike_predictions5.csv", delim = ',')
 
 
