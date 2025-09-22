@@ -27,15 +27,6 @@ temp_v_count <- ggplot(data=train_bike, aes(x = temp, y = count)) +
 
 
 
-# REGRESSION TREES
-
-tree_mod <- decision_tree(tree_depth = tune(),
-                        cost_complexity = tune(),
-                        min_n = tune()) %>%
-  set_engine("rpart") %>% set_mode("regression")
-
-
-
 
 # CLEANING / FEATURE ENGINEERING
 train_bike <- train_bike[, -c(10,11)]
@@ -50,6 +41,61 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_normalize(all_numeric_predictors()) %>%
   update_role(datetime, new_role = "ID")
+
+
+
+
+
+# REGRESSION TREES
+
+tree_mod <- decision_tree(tree_depth = tune(),
+                        cost_complexity = tune(),
+                        min_n = tune()) %>%
+  set_engine("rpart") %>% set_mode("regression")
+
+
+
+
+
+
+
+# RANDOM FORESTS
+forest_mod <- rand_forest(mtry = tune(),
+                          min_n = tune(),
+                          trees = 500) %>%
+  set_engine("ranger") %>% set_mode("regression")
+
+
+forest_wf <- workflow() %>%
+  add_recipe(bike_recipe) %>%
+  add_model(forest_mod)
+
+
+forest_grid <- grid_regular(mtry(range = c(1,9)),
+                            min_n(),
+                            levels = 5)
+
+folds <- vfold_cv(train_bike, v = 10, repeats = 1)
+
+CV_results <- forest_wf %>%
+  tune_grid(resamples = folds,
+            grid = forest_grid,
+            metrics = metric_set(rmse, mae))
+
+bestTune <- CV_results %>%
+  select_best(metric = "rmse")
+
+final_wf <- forest_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data = train_bike)
+
+
+
+
+
+
+
+
 
 
 # PENALIZED REGRESSION
@@ -75,10 +121,23 @@ preg_model <- linear_reg(penalty = 1e-50, mixture = 1e-50) %>%
 preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
   set_engine("glmnet")
 
-preg_workflow <- workflow() %>% 
-  add_recipe(bike_recipe) %>%
-  add_model(preg_model) %>%
-  fit(data = train_bike)
+# preg_workflow <- workflow() %>% 
+#   add_recipe(bike_recipe) %>%
+#   add_model(preg_model) %>%
+#   fit(data = train_bike)
+
+# preg_wf <- workflow() %>%
+#  add_recipe(bike_recipe) %>%
+#  add_model(tree_mod)
+
+#grid_of_tuning_params <- grid_regular(tree_depth(),
+#                                       cost_complexity(),
+#                                       min_n(),
+#                                       levels = 5)
+
+
+
+
 
 
 
@@ -89,35 +148,27 @@ preg_workflow <- workflow() %>%
 #                         mixture = tune()) %>%
 #  set_engine("glmnet")
 
-
-preg_wf <- workflow() %>%
-  add_recipe(bike_recipe) %>%
-  add_model(tree_mod)
-
 #grid_of_tuning_params <- grid_regular(penalty(),
 #                                      mixture(),
 #                                      levels = 5)
 
-grid_of_tuning_params <- grid_regular(tree_depth(),
-                                      cost_complexity(),
-                                      min_n(),
-                                      levels = 5)
 
-folds <- vfold_cv(train_bike, v = 10, repeats = 1)
+# folds <- vfold_cv(train_bike, v = 10, repeats = 1)
+# 
+# CV_results <- preg_wf %>%
+#   tune_grid(resamples = folds,
+#             grid = grid_of_tuning_params,
+#             metrics = metric_set(rmse, mae))
+#   
+# bestTune <- CV_results %>%
+#   select_best(metric = "rmse")
+# 
+# final_wf <- preg_wf %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data = train_bike)
 
-CV_results <- preg_wf %>%
-  tune_grid(resamples = folds,
-            grid = grid_of_tuning_params,
-            metrics = metric_set(rmse, mae))
 
 
-  
-bestTune <- CV_results %>%
-  select_best(metric = "rmse")
-
-final_wf <- preg_wf %>%
-  finalize_workflow(bestTune) %>%
-  fit(data = train_bike)
 
 
 
@@ -137,6 +188,9 @@ bike_workflow <- workflow() %>%
 
 
 
+
+
+
 # PREDICTIONS
 test_bike <- vroom("test.csv")
 
@@ -148,6 +202,6 @@ predictions <- final_wf %>%
   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
   
 
-vroom_write(predictions, "bike_predictions5.csv", delim = ',')
+vroom_write(predictions, "bike_predictions6.csv", delim = ',')
 
 
