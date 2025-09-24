@@ -3,27 +3,30 @@ library(vroom)
 library(patchwork)
 library(tidymodels)
 library(glmnet)
+library(bonsai)
+library(lightgbm)
+
 
 train_bike <- vroom("train.csv")
 
 
 # COMMON EDA
-casual_v_registered <- ggplot(data=train_bike, aes(x = casual, y = registered)) +
-  geom_point() + geom_smooth(se = FALSE)
-
-bar_weather <- ggplot(data = train_bike, aes(x = weather, fill = factor(weather))) +
-  geom_bar()
-
-season_boxplot <- ggplot(data = train_bike, aes(x = count, 
-                                               y = humidity, 
-                                               group = season,
-                                               fill = factor(season))) +
-  geom_boxplot()
-
-temp_v_count <- ggplot(data=train_bike, aes(x = temp, y = count)) +
-  geom_point() + geom_smooth(se = FALSE)
-
-(casual_v_registered + bar_weather) / (season_boxplot + temp_v_count)
+# casual_v_registered <- ggplot(data=train_bike, aes(x = casual, y = registered)) +
+#   geom_point() + geom_smooth(se = FALSE)
+# 
+# bar_weather <- ggplot(data = train_bike, aes(x = weather, fill = factor(weather))) +
+#   geom_bar()
+# 
+# season_boxplot <- ggplot(data = train_bike, aes(x = count, 
+#                                                y = humidity, 
+#                                                group = season,
+#                                                fill = factor(season))) +
+#   geom_boxplot()
+# 
+# temp_v_count <- ggplot(data=train_bike, aes(x = temp, y = count)) +
+#   geom_point() + geom_smooth(se = FALSE)
+# 
+# (casual_v_registered + bar_weather) / (season_boxplot + temp_v_count)
 
 
 
@@ -48,11 +51,11 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
 
 # REGRESSION TREES
 
-tree_mod <- decision_tree(tree_depth = tune(),
-                        cost_complexity = tune(),
-                        min_n = tune()) %>%
-  set_engine("rpart") %>% set_mode("regression")
-
+# tree_mod <- decision_tree(tree_depth = tune(),
+#                         cost_complexity = tune(),
+#                         min_n = tune()) %>%
+#   set_engine("rpart") %>% set_mode("regression")
+# 
 
 
 
@@ -60,40 +63,64 @@ tree_mod <- decision_tree(tree_depth = tune(),
 
 
 # RANDOM FORESTS
-forest_mod <- rand_forest(mtry = tune(),
-                          min_n = tune(),
-                          trees = 500) %>%
-  set_engine("ranger") %>% set_mode("regression")
+# forest_mod <- rand_forest(mtry = tune(),
+#                           min_n = tune(),
+#                           trees = 500) %>%
+#   set_engine("ranger") %>% set_mode("regression")
+# 
+# 
+# forest_wf <- workflow() %>%
+#   add_recipe(bike_recipe) %>%
+#   add_model(forest_mod)
+# 
+# 
+# forest_grid <- grid_regular(mtry(range = c(1,9)),
+#                             min_n(),
+#                             levels = 5)
+# 
+# folds <- vfold_cv(train_bike, v = 10, repeats = 1)
+# 
+# CV_results <- forest_wf %>%
+#   tune_grid(resamples = folds,
+#             grid = forest_grid,
+#             metrics = metric_set(rmse, mae))
+# 
+# bestTune <- CV_results %>%
+#   select_best(metric = "rmse")
+# 
+# final_wf <- forest_wf %>%
+#   finalize_workflow(bestTune) %>%
+#   fit(data = train_bike)
 
 
-forest_wf <- workflow() %>%
+
+
+# BOOSTED TREES & BART
+bart_model <- bart(trees = tune()) %>%
+  set_engine("dbarts") %>%
+  set_mode("regression")
+
+bart_wf <- workflow() %>%
   add_recipe(bike_recipe) %>%
-  add_model(forest_mod)
+  add_model(bart_model)
 
 
-forest_grid <- grid_regular(mtry(range = c(1,9)),
-                            min_n(),
-                            levels = 5)
+bart_grid <- grid_regular(trees(),
+                            levels = 2)
 
 folds <- vfold_cv(train_bike, v = 10, repeats = 1)
 
-CV_results <- forest_wf %>%
+CV_results <- bart_wf %>%
   tune_grid(resamples = folds,
-            grid = forest_grid,
+            grid = bart_grid,
             metrics = metric_set(rmse, mae))
 
 bestTune <- CV_results %>%
   select_best(metric = "rmse")
 
-final_wf <- forest_wf %>%
+final_wf <- bart_wf %>%
   finalize_workflow(bestTune) %>%
   fit(data = train_bike)
-
-
-
-
-
-
 
 
 
@@ -102,24 +129,24 @@ final_wf <- forest_wf %>%
 
 # GUESSING PENALTY AND MIXTURE
 # COMBO 1
-preg_model <- linear_reg(penalty = 1, mixture = 0.99) %>%
-  set_engine("glmnet")
+# preg_model <- linear_reg(penalty = 1, mixture = 0.99) %>%
+#   set_engine("glmnet")
 
 # COMBO 2
-preg_model <- linear_reg(penalty = 0.0001, mixture = 0.5) %>%
-  set_engine("glmnet")
+# preg_model <- linear_reg(penalty = 0.0001, mixture = 0.5) %>%
+#   set_engine("glmnet")
 
 # COMBO 3
-preg_model <- linear_reg(penalty = 0.000001, mixture = 0.1) %>%
-  set_engine("glmnet")
+# preg_model <- linear_reg(penalty = 0.000001, mixture = 0.1) %>%
+#   set_engine("glmnet")
 
 # COMBO 4
-preg_model <- linear_reg(penalty = 1e-50, mixture = 1e-50) %>%
-  set_engine("glmnet")
+# preg_model <- linear_reg(penalty = 1e-50, mixture = 1e-50) %>%
+#   set_engine("glmnet")
 
 # COMBO 5
-preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
-  set_engine("glmnet")
+# preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
+#   set_engine("glmnet")
 
 # preg_workflow <- workflow() %>% 
 #   add_recipe(bike_recipe) %>%
@@ -138,7 +165,16 @@ preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
 
 
 
+# LINEAR REGRESSION WORKFLOW
 
+# my_linear_model <- linear_reg() %>%
+#   set_engine("lm") %>%
+#   set_mode("regression")
+# 
+# bike_workflow <- workflow() %>%
+#   add_recipe(bike_recipe) %>%
+#   add_model(my_linear_model) %>%
+#   fit(data = train_bike)
 
 
 
@@ -174,22 +210,6 @@ preg_model <- linear_reg(penalty = 1e-9999, mixture = 1e-999) %>%
 
 
 
-# LINEAR REGRESSION WORKFLOW
-
-my_linear_model <- linear_reg() %>% 
-  set_engine("lm") %>% 
-  set_mode("regression")
-
-bike_workflow <- workflow() %>% 
-  add_recipe(bike_recipe) %>%
-  add_model(my_linear_model) %>%
-  fit(data = train_bike)
-
-
-
-
-
-
 
 # PREDICTIONS
 test_bike <- vroom("test.csv")
@@ -202,6 +222,6 @@ predictions <- final_wf %>%
   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
   
 
-vroom_write(predictions, "bike_predictions6.csv", delim = ',')
+vroom_write(predictions, "bart_predictions.csv", delim = ',')
 
 
