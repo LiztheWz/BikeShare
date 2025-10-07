@@ -8,6 +8,7 @@ library(lightgbm)
 library(agua)
 
 train_bike <- vroom("train.csv")
+test_bike <- vroom("test.csv")
 
 # COMMON EDA
 # ==============================================================
@@ -30,21 +31,50 @@ train_bike <- vroom("train.csv")
 
 
 
-
 # CLEANING / FEATURE ENGINEERING
 # ==============================================================
 train_bike <- train_bike[, -c(10,11)]
-train_bike$count <- log(train_bike$count)
+# train_bike$count <- log(train_bike$count)
+train_bike <- train_bike %>% mutate(count = log(count + 1))
 
-bike_recipe <- recipe(count ~., data = train_bike) %>% 
-  step_mutate(weather = ifelse(weather == 4, 3, weather)) %>%
-  step_mutate(weather = factor(weather)) %>%
+# train_bike <- train_bike %>%
+#   mutate(datetime = lubridate::parse_date_time(datetime, 
+#                                                orders = c("ymd HMS", "ymd HM", "ymd H", "ymd"),
+#                                                tz = "UTC"))
+# 
+# test_bike <- test_bike %>%
+#   mutate(datetime = lubridate::parse_date_time(datetime, 
+#                                                orders = c("ymd HMS", "ymd HM", "ymd H", "ymd"),
+#                                                tz = "UTC"))
+
+# bike_recipe <- recipe(count ~., data = train_bike) %>% 
+#   step_mutate(weather = ifelse(weather == 4, 3, weather)) %>%
+#   step_mutate(weather = factor(weather)) %>%
+#   step_time(datetime, features = "hour") %>%
+#   step_mutate(season = factor(season)) %>%
+#   step_date(datetime, features = "dow") %>%
+#   step_dummy(all_nominal_predictors()) %>%
+#   step_normalize(all_numeric_predictors()) %>%
+#   update_role(datetime, new_role = "ID")
+
+
+bike_recipe <- recipe(count ~ ., data = train_bike) %>%
+  step_mutate(weather = ifelse(weather == 4, 3, weather),
+              weekend = ifelse(wday(datetime) %in% c(1,7), 1, 0),
+              rush_hour = ifelse(hour(datetime) %in% c(7:9, 16:19), 1, 0)) %>%
+  step_date(datetime, features = c("month", "year", "dow")) %>%
   step_time(datetime, features = "hour") %>%
-  step_mutate(season = factor(season)) %>%
-  step_date(datetime, features = "dow") %>%
+  step_rm(datetime) %>%
+  step_interact(terms = ~ temp:humidity + temp:windspeed + season:humidity) %>%
+  step_poly(temp, humidity, degree = 2) %>%
   step_dummy(all_nominal_predictors()) %>%
-  step_normalize(all_numeric_predictors()) %>%
-  update_role(datetime, new_role = "ID")
+  step_normalize(all_numeric_predictors())
+
+
+
+
+
+
 
 
 # LINEAR REGRESSION WORKFLOW
@@ -218,43 +248,48 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
 
 
 
+# BOOSTING
+# ==============================================================
 
-# BOOSTED TREES & BART
+
+
+
+
+# BART
 # ==============================================================
 # bart_model <- bart(trees = tune()) %>%
-#   set_engine("dbarts") %>%
-#   set_mode("regression")
+# set_engine("dbarts") %>%
+# set_mode("regression")
 # 
 # bart_wf <- workflow() %>%
-#   add_recipe(bike_recipe) %>%
-#   add_model(bart_model)
-# 
+# add_recipe(bike_recipe) %>%
+# add_model(bart_model)
 # 
 # bart_grid <- grid_regular(trees(),
-#                             levels = 2)
+# levels = 2)
 # 
 # folds <- vfold_cv(train_bike, v = 10, repeats = 1)
 # 
 # CV_results <- bart_wf %>%
-#   tune_grid(resamples = folds,
-#             grid = bart_grid,
-#             metrics = metric_set(rmse, mae))
+# tune_grid(resamples = folds,
+# grid = bart_grid,
+# metrics = metric_set(rmse, mae))
 # 
 # bestTune <- CV_results %>%
-#   select_best(metric = "rmse")
+# select_best(metric = "rmse")
 # 
 # final_wf <- bart_wf %>%
-#   finalize_workflow(bestTune) %>%
-#   fit(data = train_bike)
-
+# finalize_workflow(bestTune) %>%
+# fit(data = train_bike)
+# 
 # test_bike <- vroom("test.csv")
 # 
-# predictions <- final_wf %>% 
-#   predict(new_data = test_bike) %>%
-#   mutate(count = exp(.pred)) %>%
-#   bind_cols(test_bike %>% select(datetime)) %>%
-#   select(datetime, count) %>%
-#   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
+# predictions <- final_wf %>%
+# predict(new_data = test_bike) %>%
+# mutate(count = exp(.pred)) %>%
+# bind_cols(test_bike %>% select(datetime)) %>%
+# select(datetime, count) %>%
+# mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
 # 
 # 
 # vroom_write(predictions, "bart_predictions.csv", delim = ',')
@@ -265,7 +300,7 @@ bike_recipe <- recipe(count ~., data = train_bike) %>%
 h2o::h2o.init()
 
 auto_model <- auto_ml() %>%
-  set_engine("h2o", max_runtime_secs = 120, max_models = 5) %>%
+  set_engine("h2o", max_runtime_secs = 180, max_models = 6) %>%
   set_mode("regression")
 
 automl_wf <- workflow() %>%
@@ -273,14 +308,12 @@ automl_wf <- workflow() %>%
   add_model(auto_model) %>%
   fit(data = train_bike)
 
-test_bike <- vroom("test.csv")
-
-predictions <- automl_wf %>% 
+ 
+predictions <- automl_wf %>%
   predict(new_data = test_bike) %>%
-  mutate(count = exp(.pred)) %>%
+  mutate(count = exp(.pred) - 1) %>%
   bind_cols(test_bike %>% select(datetime)) %>%
   select(datetime, count) %>%
   mutate(datetime = format(datetime, "%Y-%m-%d %H:%M:%S"))
-
 
 vroom_write(predictions, "stacking_predictions.csv", delim = ',')
